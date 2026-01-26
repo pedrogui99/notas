@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bloco Cloud Pro</title>
+    <style>
+        :root {
+            --primary: #1a73e8;
+            --danger: #d93025;
+            --bg: #f8f9fa;
+            --sidebar-bg: #ffffff;
+            --toolbar-bg: #f1f3f4;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background-color: var(--bg);
+            color: #3c4043;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid #dadce0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header { padding: 20px; border-bottom: 1px solid #eee; }
+
+        .btn-new {
+            width: 100%;
+            padding: 12px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .notes-list { flex-grow: 1; overflow-y: auto; padding: 10px; }
+
+        .note-item {
+            padding: 12px;
+            margin-bottom: 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .note-item:hover { background: #f1f3f4; }
+        .note-item.active { background: #e8f0fe; color: var(--primary); font-weight: 500; }
+
+        .note-actions { display: none; gap: 5px; }
+        .note-item:hover .note-actions { display: flex; }
+
+        /* Área Principal */
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .editor-header {
+            padding: 15px 25px;
+            background: white;
+            border-bottom: 1px solid #dadce0;
+        }
+
+        /* Toolbar de Botões */
+        .toolbar {
+            padding: 10px 25px;
+            background: var(--toolbar-bg);
+            display: flex;
+            gap: 10px;
+            border-bottom: 1px solid #dadce0;
+        }
+
+        .btn-tool {
+            padding: 6px 12px;
+            border: 1px solid #dadce0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #5f6368;
+            transition: all 0.2s;
+        }
+
+        .btn-tool:hover { background: #f8f9fa; border-color: var(--primary); color: var(--primary); }
+        .btn-tool:active { background: #e8f0fe; }
+
+        textarea {
+            flex-grow: 1;
+            border: none;
+            padding: 25px;
+            font-size: 16px;
+            line-height: 1.6;
+            resize: none;
+            outline: none;
+            background: #fff;
+        }
+
+        /* Barra de Status Inferior */
+        .status-bar {
+            background: white;
+            border-top: 1px solid #dadce0;
+            padding: 5px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #70757a;
+        }
+
+        .dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .dot-online { background-color: #34a853; }
+        .dot-offline { background-color: #ea4335; }
+
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; height: 180px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <button class="btn-new" id="btn-new"><span>+</span> Nova Nota</button>
+        </div>
+        <div class="notes-list" id="notes-list"></div>
+    </div>
+
+    <div class="main-content">
+        <div class="editor-header">
+            <h2 id="current-note-title" style="margin:0; font-size: 1.2rem;">Selecione uma nota</h2>
+        </div>
+
+        <div class="toolbar">
+            <button class="btn-tool" id="btn-select">Selecionar Tudo</button>
+            <button class="btn-tool" id="btn-copy">Copiar</button>
+            <button class="btn-tool" id="btn-clear" style="color: var(--danger);">Apagar Tudo</button>
+        </div>
+
+        <textarea id="notepad" placeholder="Selecione ou crie uma nota..." disabled></textarea>
+
+        <div class="status-bar">
+            <div>
+                <span id="conn-dot" class="dot dot-offline"></span>
+                <span id="conn-text">Desconectado</span>
+            </div>
+            <div id="sync-status">Aguardando...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, push, remove, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDcqirOpeJbA4dJRCn_kH3pVYKRZRL6ThM",
+            authDomain: "teste-ac272.firebaseapp.com",
+            databaseURL: "https://teste-ac272-default-rtdb.firebaseio.com",
+            projectId: "teste-ac272",
+            storageBucket: "teste-ac272.firebasestorage.app",
+            messagingSenderId: "931968277841",
+            appId: "1:931968277841:web:e857bdb52d4d15be5a0770"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const notesRef = ref(db, 'bloco_v2/notas');
+
+        const notesListElement = document.getElementById('notes-list');
+        const notepad = document.getElementById('notepad');
+        const currentTitleDisplay = document.getElementById('current-note-title');
+        const connDot = document.getElementById('conn-dot');
+        const connText = document.getElementById('conn-text');
+        const syncStatus = document.getElementById('sync-status');
+        
+        let activeNoteId = null;
+
+        // --- MONITOR DE CONEXÃO ---
+        const connectedRef = ref(db, ".info/connected");
+        onValue(connectedRef, (snap) => {
+            if (snap.val() === true) {
+                connDot.className = "dot dot-online";
+                connText.textContent = "Online e Sincronizado";
+            } else {
+                connDot.className = "dot dot-offline";
+                connText.textContent = "Offline - Reconectando...";
+            }
+        });
+
+        // --- FUNÇÕES DA TOOLBAR ---
+        document.getElementById('btn-select').onclick = () => {
+            notepad.focus();
+            notepad.select();
+        };
+
+        document.getElementById('btn-copy').onclick = () => {
+            navigator.clipboard.writeText(notepad.value);
+            syncStatus.textContent = "Copiado para a área de transferência!";
+            setTimeout(() => syncStatus.textContent = "Sincronizado", 2000);
+        };
+
+        document.getElementById('btn-clear').onclick = () => {
+            if (confirm("Limpar todo o conteúdo desta nota?")) {
+                notepad.value = "";
+                saveContent();
+            }
+        };
+
+        // --- LÓGICA DE NOTAS ---
+        document.getElementById('btn-new').onclick = () => {
+            const title = prompt("Título da nova nota:", "Nova Nota");
+            if (title) {
+                const newNoteRef = push(notesRef);
+                set(newNoteRef, { title: title, content: "", timestamp: Date.now() });
+            }
+        };
+
+        onValue(notesRef, (snapshot) => {
+            notesListElement.innerHTML = "";
+            const data = snapshot.val();
+            if (data) {
+                Object.keys(data).forEach(id => {
+                    const note = data[id];
+                    const div = document.createElement('div');
+                    div.className = `note-item ${activeNoteId === id ? 'active' : ''}`;
+                    div.innerHTML = `
+                        <span style="overflow:hidden; text-overflow:ellipsis;">${note.title}</span>
+                        <div class="note-actions">
+                            <button class="btn-tool" style="padding:2px 5px" onclick="event.stopPropagation(); renameNote('${id}', '${note.title}')">✏️</button>
+                            <button class="btn-tool" style="padding:2px 5px" onclick="event.stopPropagation(); deleteNote('${id}')">🗑️</button>
+                        </div>
+                    `;
+                    div.onclick = () => {
+                        activeNoteId = id;
+                        notepad.disabled = false;
+                        notepad.value = note.content || "";
+                        currentTitleDisplay.textContent = note.title;
+                        renderList(data);
+                    };
+                    notesListElement.appendChild(div);
+
+                    if (activeNoteId === id && document.activeElement !== notepad) {
+                        notepad.value = note.content || "";
+                    }
+                });
+            }
+        });
+
+        // Função auxiliar para re-renderizar a lista e marcar a ativa
+        function renderList(data) {
+            document.querySelectorAll('.note-item').forEach((el, index) => {
+                const id = Object.keys(data)[index];
+                el.className = `note-item ${activeNoteId === id ? 'active' : ''}`;
+            });
+        }
+
+        function saveContent() {
+            if (!activeNoteId) return;
+            syncStatus.textContent = "Salvando...";
+            update(ref(db, `bloco_v2/notas/${activeNoteId}`), {
+                content: notepad.value
+            }).then(() => {
+                syncStatus.textContent = "Sincronizado";
+            });
+        }
+
+        notepad.oninput = saveContent;
+
+        window.renameNote = (id, oldTitle) => {
+            const newTitle = prompt("Novo título:", oldTitle);
+            if (newTitle) update(ref(db, `bloco_v2/notas/${id}`), { title: newTitle });
+        };
+
+        window.deleteNote = (id) => {
+            if (confirm("Excluir esta nota permanentemente?")) {
+                if (activeNoteId === id) {
+                    activeNoteId = null;
+                    notepad.value = "";
+                    notepad.disabled = true;
+                    currentTitleDisplay.textContent = "Selecione uma nota";
+                }
+                remove(ref(db, `bloco_v2/notas/${id}`));
+            }
+        };
+    </script>
+</body>
+</html>
